@@ -23,14 +23,13 @@ def classify_address(address):
         return "轉郵局"
     
     # 2. 判斷是否有【縣市鄉鎮】 (利用正規表達式檢查地址前 10 個字)
-    # 邏輯：檢查是否包含 縣市 或 鄉鎮市區 關鍵字
     pattern = r"(.+[縣市].+[鄉鎮市區])|(.+[縣市])|(.+[鄉鎮市區])"
     if re.search(pattern, addr_str[:10]):
         return "有鄉鎮"
     
     return "無鄉鎮"
 
-# --- 檔案下載 Function (含 Arial 10, 無框線設定) ---
+# --- 檔案下載 Function (含 Arial 10, 欄寬 8.09, 無填滿, 無框線設定) ---
 def to_excel(df_to_save):
     output = io.BytesIO()
     # 移除分類輔助欄位
@@ -42,39 +41,43 @@ def to_excel(df_to_save):
         workbook  = writer.book
         worksheet = writer.sheets['Sheet1']
         
-        # 設定格式：Arial, 10號字, 無框線, 靠左對齊
+        # 設定內容格式：Arial, 10號字, 欄寬 8.09, 無框線, 無底色填滿, 靠左
         cell_format = workbook.add_format({
             'font_name': 'Arial',
             'font_size': 10,
             'border': 0,
             'align': 'left',
-            'valign': 'vcenter'
+            'valign': 'vcenter',
+            'pattern': 0  # 0 為無填滿
         })
         
-        # 設定標題格式 (Arial 10, 加粗, 無框線)
+        # 設定標題格式 (Arial 10, 加粗, 無框線, 無底色填滿)
         header_format = workbook.add_format({
             'font_name': 'Arial',
             'font_size': 10,
             'bold': True,
             'border': 0,
             'align': 'left',
-            'valign': 'vcenter'
+            'valign': 'vcenter',
+            'pattern': 0
         })
 
         # 套用格式與設定欄位寬度
-        for col_num, value in enumerate(final_df.columns.values):
-            # 寫入標題列
-            worksheet.write(0, col_num, value, header_format)
-            # 套用內容格式到整欄，並設定預設寬度 25
-            worksheet.set_column(col_num, col_num, 25, cell_format)
+        num_cols = len(final_df.columns)
+        if num_cols > 0:
+            # 統一設定所有欄位寬度為 8.09，並套用內容格式
+            worksheet.set_column(0, num_cols - 1, 8.09, cell_format)
             
-        # 隱藏 Excel 預設格線
+        # 重新寫入標題列以套用 header_format
+        for col_num, value in enumerate(final_df.columns.values):
+            worksheet.write(0, col_num, value, header_format)
+            
+        # 隱藏 Excel 預設檢視格線
         worksheet.hide_gridlines(2)
 
     return output.getvalue()
 
 # --- UI 介面 ---
-# 初始化 Session State (確保下載後結果不消失)
 if 'processed' not in st.session_state:
     st.session_state['processed'] = False
 if 'df_result' not in st.session_state:
@@ -84,24 +87,21 @@ uploaded_file = st.file_uploader("請上傳 Excel 檔案 (.xls, .xlsx)", type=["
 
 if uploaded_file:
     try:
-        # 判斷引擎：舊版 xls 使用 xlrd，新版 xlsx 使用 openpyxl
         engine = 'xlrd' if uploaded_file.name.endswith('.xls') else 'openpyxl'
         df = pd.read_excel(uploaded_file, engine=engine)
         
-        # 檢查關鍵欄位
         if "收件人地址" not in df.columns:
             st.error("❌ 錯誤：檔案中找不到標題為『收件人地址』的欄位。")
         else:
             if not st.session_state['processed']:
-                st.success(f"檔案讀取成功！共 {len(df)} 筆資料。請點擊下方按鈕開始分類。")
+                st.info(f"檔案已就緒：共 {len(df)} 筆。點擊下方按鈕進行分類。")
             
-            if st.button("🚀 執行分類與格式化"):
-                with st.spinner('正在分析地址並套用 Arial 格式...'):
+            if st.button("🚀 執行分類並導出"):
+                with st.spinner('分類處理中...'):
                     df['category'] = df["收件人地址"].apply(classify_address)
                     st.session_state['df_result'] = df
                     st.session_state['processed'] = True
 
-            # 顯示結果區域
             if st.session_state['processed']:
                 res_df = st.session_state['df_result']
                 df_post = res_df[res_df['category'] == "轉郵局"]
@@ -111,11 +111,11 @@ if uploaded_file:
                 st.write("---")
                 st.subheader("📊 分類統計結果")
                 col_a, col_b, col_c = st.columns(3)
-                col_a.metric("📮 轉郵局 (離島/i郵箱)", f"{len(df_post)} 筆")
+                col_a.metric("📮 轉郵局", f"{len(df_post)} 筆")
                 col_b.metric("🏠 轉新竹_有鄉鎮", f"{len(df_ok)} 筆")
                 col_c.metric("⚠️ 轉新竹_無鄉鎮", f"{len(df_no)} 筆")
 
-                st.write("### 📥 下載分類檔案 (Arial 10 級字)")
+                st.write("### 📥 下載檔案 (格式：Arial 10, 寬度 8.09)")
                 dl_col1, dl_col2, dl_col3 = st.columns(3)
                 
                 with dl_col1:
@@ -125,15 +125,13 @@ if uploaded_file:
                 with dl_col3:
                     st.download_button("📥 下載：轉新竹_無鄉鎮", to_excel(df_no), "轉新竹_無鄉鎮.xlsx", key="btn_no")
                 
-                # 資料預覽
                 st.write("---")
                 st.write("🔍 前 5 筆資料預覽：")
                 st.dataframe(res_df[["收件人地址", "category"]].head())
 
     except Exception as e:
-        st.error(f"系統發生異常，請確認檔案格式是否正確：{e}")
+        st.error(f"系統發生異常：{e}")
 else:
-    # 清空狀態以便上傳新檔案
     st.session_state['processed'] = False
     st.session_state['df_result'] = None
-    st.info("💡 請上傳包含『收件人地址』標題的 Excel 檔案。")
+    st.info("請上傳 Excel 檔案開始作業")
