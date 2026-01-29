@@ -29,7 +29,7 @@ def classify_address(address):
     
     return "無鄉鎮"
 
-# --- Excel 導出格式設定 (Arial 10, 寬度 8.09, 透明無填滿) ---
+# --- Excel 導出格式設定 (Arial 10, 寬度 8.09, 真正透明) ---
 def to_excel(df_to_save):
     output = io.BytesIO()
     # 移除分類用的輔助欄位
@@ -41,7 +41,7 @@ def to_excel(df_to_save):
         workbook  = writer.book
         worksheet = writer.sheets['Sheet1']
         
-        # 定義內容格式 (完全不指定 pattern 和 bg_color 即為透明無填滿)
+        # 定義格式：Arial 10, 無框線 (完全不設定 bg_color 屬性)
         style_format = workbook.add_format({
             'font_name': 'Arial',
             'font_size': 10,
@@ -60,53 +60,46 @@ def to_excel(df_to_save):
             'valign': 'vcenter'
         })
 
-        # 取得欄位數量
         num_cols = len(final_df.columns)
-        
         if num_cols > 0:
-            # 設定所有欄位的寬度為 8.09，並套用透明格式
+            # 1. 設定所有欄位的寬度為 8.09，並套用基礎格式
             worksheet.set_column(0, num_cols - 1, 8.09, style_format)
             
-            # 重新寫入標題列以套用加粗格式
+            # 2. 重新寫入標題列以套用加粗格式
             for col_num, value in enumerate(final_df.columns.values):
                 worksheet.write(0, col_num, value, header_format)
             
-        # 隱藏工作表背景格線
-        worksheet.hide_gridlines(2)
+        # 注意：我們移除了 worksheet.hide_gridlines() 
+        # 這樣 Excel 會顯示預設格線，視覺上就是「透明底」
 
     return output.getvalue()
 
 # --- Streamlit UI 邏輯 ---
 
-# 初始化狀態，避免下載時重整
 if 'processed' not in st.session_state:
     st.session_state['processed'] = False
 if 'df_result' not in st.session_state:
     st.session_state['df_result'] = None
 
-# 檔案上傳
 uploaded_file = st.file_uploader("請上傳 Excel 檔案 (.xls, .xlsx)", type=["xls", "xlsx"])
 
 if uploaded_file:
     try:
-        # 根據副檔名選擇讀取引擎
         engine = 'xlrd' if uploaded_file.name.endswith('.xls') else 'openpyxl'
         df = pd.read_excel(uploaded_file, engine=engine)
         
-        # 直接檢查標題
         if "收件人地址" not in df.columns:
-            st.error("❌ 錯誤：找不到標題為『收件人地址』的欄位，請檢查檔案內容。")
+            st.error("❌ 錯誤：找不到標題為『收件人地址』的欄位。")
         else:
             if not st.session_state['processed']:
-                st.info(f"檔案已就緒，共 {len(df)} 筆。請點擊按鈕執行分類。")
+                st.info(f"檔案已就緒，共 {len(df)} 筆。")
             
             if st.button("🚀 執行分類並導出"):
-                with st.spinner('分類處理中...'):
+                with st.spinner('處理中...'):
                     df['category'] = df["收件人地址"].apply(classify_address)
                     st.session_state['df_result'] = df
                     st.session_state['processed'] = True
 
-            # 顯示處理結果
             if st.session_state['processed']:
                 res_df = st.session_state['df_result']
                 df_post = res_df[res_df['category'] == "轉郵局"]
@@ -120,7 +113,7 @@ if uploaded_file:
                 c2.metric("🏠 轉新竹_有鄉鎮", f"{len(df_ok)} 筆")
                 c3.metric("⚠️ 轉新竹_無鄉鎮", f"{len(df_no)} 筆")
 
-                st.write("### 📥 下載分類結果 (Arial 10, 透明底)")
+                st.write("### 📥 下載分類結果")
                 dl1, dl2, dl3 = st.columns(3)
                 
                 with dl1:
@@ -131,8 +124,8 @@ if uploaded_file:
                     st.download_button("📥 下載：轉新竹_無鄉鎮", to_excel(df_no), "轉新竹_無鄉鎮.xlsx", key="btn_no")
 
     except Exception as e:
-        st.error(f"系統發生異常：{e}")
+        st.error(f"系統異常：{e}")
 else:
     st.session_state['processed'] = False
     st.session_state['df_result'] = None
-    st.info("請上傳 Excel 檔案開始作業。")
+    st.info("請上傳檔案開始作業。")
