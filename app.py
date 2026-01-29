@@ -40,53 +40,53 @@ def to_excel(df_to_save):
     if 'category' in final_df.columns:
         final_df = final_df.drop(columns=['category'])
     
-    # 【關鍵修復】：處理「收件人連絡電話1」補零
+    # 【修復】：處理「收件人連絡電話1」補零
     target_col = "收件人連絡電話1"
     if target_col in final_df.columns:
-        # 先轉為字串並去除可能的空白或小數點（.0）
         final_df[target_col] = final_df[target_col].astype(str).str.replace(r'\.0$', '', regex=True).str.strip()
-        # 如果是 9 碼且 9 開頭，自動補 0
         final_df[target_col] = final_df[target_col].apply(
             lambda x: x.zfill(10) if (len(x) == 9 and x.startswith('9')) else x
         )
     
     with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
-        # 將資料寫入 Excel
         final_df.to_excel(writer, index=False, sheet_name='Sheet1')
         
         workbook  = writer.book
         worksheet = writer.sheets['Sheet1']
         
-        # 定義格式：Arial 10, 文字格式 (使用 '@' 強制 Excel 視為文字)
+        # --- 核心修改：使用 'align': 'fill' 來防止文字溢出到隔壁欄位 ---
         style_format = workbook.add_format({
             'font_name': 'Arial',
             'font_size': 10,
             'border': 0,
-            'align': 'left',
+            'align': 'fill',      # 關鍵！這會讓長文字不超出格線
             'valign': 'vcenter',
-            'num_format': '@'  # 強制 Excel 儲存格格式為「文字」
+            'num_format': '@'     # 強制文字格式
         })
         
+        # 標題格式 (不加粗)
         header_format = workbook.add_format({
             'font_name': 'Arial',
             'font_size': 10,
-            'bold': True,
+            'bold': False,
             'border': 0,
-            'align': 'left',
-            'valign': 'vcenter'
+            'align': 'left',      # 標題通常靠左對齊即可
+            'valign': 'vcenter',
+            'num_format': '@'
         })
 
         num_cols = len(final_df.columns)
         if num_cols > 0:
-            # 設定寬度並套用文字格式
+            # 設定欄位寬度
             worksheet.set_column(0, num_cols - 1, 8.09, style_format)
+            
+            # 寫入標題
             for col_num, value in enumerate(final_df.columns.values):
                 worksheet.write(0, col_num, value, header_format)
 
     return output.getvalue()
 
 # --- Streamlit UI 邏輯 ---
-
 if 'processed' not in st.session_state:
     st.session_state['processed'] = False
 if 'df_result' not in st.session_state:
@@ -97,7 +97,7 @@ uploaded_file = st.file_uploader("請上傳 Excel 檔案 (.xls, .xlsx)", type=["
 if uploaded_file:
     try:
         engine = 'xlrd' if uploaded_file.name.endswith('.xls') else 'openpyxl'
-        # 【關鍵修復】：讀取時強制 dtype=str，防止 0 消失
+        # 讀取時強制為字串，確保開頭 0 存在
         df = pd.read_excel(uploaded_file, engine=engine, dtype=str)
         
         if "收件人地址" not in df.columns:
@@ -108,7 +108,6 @@ if uploaded_file:
             
             if st.button("🚀 執行分類並導出"):
                 with st.spinner('處理中...'):
-                    # 執行地址分類
                     df['category'] = df["收件人地址"].apply(classify_address)
                     st.session_state['df_result'] = df
                     st.session_state['processed'] = True
